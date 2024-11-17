@@ -7,15 +7,6 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 2
 fi
 
-# Check required dependencies
-readonly DEPENDENCIES="awk badblocks grep sed sleep smartctl"
-for dependency in ${DEPENDENCIES}; do
-  if ! command -v "${dependency}" > /dev/null 2>&1; then
-    echo "ERROR: Command '${dependency}' not found" >&2
-    exit 2
-  fi
-done
-
 readonly USAGE=\
 "NAME
     $(basename "$0") -- disk burn-in program
@@ -275,7 +266,7 @@ readonly BB_C_ARG
 # Drive to burn-in
 DRIVE="$1"
 # prepend /dev/ if necessary
-if ! printf '%s' "${DRIVE}" | grep "/dev/\w*" > /dev/null 2>&1; then
+if ! printf '%s' "${DRIVE}" | ${pkgs.gnugrep}/bin/grep "/dev/\w*" > /dev/null 2>&1; then
   DRIVE="/dev/${DRIVE}"
 fi
 readonly DRIVE
@@ -289,7 +280,7 @@ fi
 # Set to working directory if -o <directory> wasn't provided
 [ -z "${LOG_DIR}" ] && LOG_DIR="$(pwd)"
 # Trim trailing slashes
-LOG_DIR="$(printf '%s' "${LOG_DIR}" | awk '{gsub(/\/+$/, ""); printf $1}')"
+LOG_DIR="$(printf '%s' "${LOG_DIR}" | ${pkgs.gawk}/bin/awk '{gsub(/\/+$/, ""); printf $1}')"
 readonly LOG_DIR
 
 # System information
@@ -320,8 +311,8 @@ get_smart_info_value() {
   # gsub(/ /, "_");               replace remaining spaces with underscores
   # printf $1                     print result without newline at the end
   printf '%s' "${SMART_INFO}" \
-    | grep "$1" \
-    | awk '{$1=$2=""; gsub(/^[ \t]+|[ \t]+$/, ""); gsub(/ /, "_"); printf $1}'
+    | ${pkgs.gnugrep}/bin/grep "$1" \
+    | ${pkgs.gawk}/bin/awk '{$1=$2=""; gsub(/^[ \t]+|[ \t]+$/, ""); gsub(/ /, "_"); printf $1}'
 }
 
 ##################################################
@@ -342,7 +333,7 @@ get_smart_test_duration() {
   # gsub(/\(|\)/, "");            remove parantheses
   # printf $4                     print 4th column without newline at the end
   printf '%s' "${SMART_CAPABILITIES}" \
-    | awk '/'"$1"' self-test routine/{getline; gsub(/\(|\)/, ""); printf $4}'
+    | ${pkgs.gawk}/bin/awk '/'"$1"' self-test routine/{getline; gsub(/\(|\)/, ""); printf $4}'
 }
 
 # Get disk model
@@ -354,7 +345,7 @@ readonly DISK_MODEL
 # Get disk type; unless we get 'Solid State Device' as return value, assume 
 # we have a mechanical drive.
 DISK_TYPE="$(get_smart_info_value "Rotation Rate")"
-if printf '%s' "${DISK_TYPE}" | grep -i "solid_state_device" > /dev/null 2>&1; then
+if printf '%s' "${DISK_TYPE}" | ${pkgs.gnugrep}/bin/grep -i "solid_state_device" > /dev/null 2>&1; then
   DISK_TYPE="SSD"
 fi
 readonly DISK_TYPE
@@ -434,19 +425,19 @@ init_log() {
 ##################################################
 cleanup_log() {
   if [ "${OS_FLAVOR}" = "Linux" ]; then
-    sed -i -e '/Copyright/d' "${LOG_FILE}"
-    sed -i -e '/=== START OF READ/d' "${LOG_FILE}"
-    sed -i -e '/SMART Attributes Data/d' "${LOG_FILE}"
-    sed -i -e '/Vendor Specific SMART/d' "${LOG_FILE}"
-    sed -i -e '/SMART Error Log Version/d' "${LOG_FILE}"
+    ${pkgs.gnused}/bin/sed -i -e '/Copyright/d' "${LOG_FILE}"
+    ${pkgs.gnused}/bin/sed -i -e '/=== START OF READ/d' "${LOG_FILE}"
+    ${pkgs.gnused}/bin/sed -i -e '/SMART Attributes Data/d' "${LOG_FILE}"
+    ${pkgs.gnused}/bin/sed -i -e '/Vendor Specific SMART/d' "${LOG_FILE}"
+    ${pkgs.gnused}/bin/sed -i -e '/SMART Error Log Version/d' "${LOG_FILE}"
   fi
 
   if [ "${OS_FLAVOR}" = "FreeBSD" ]; then
-    sed -i '' -e '/Copyright/d' "${LOG_FILE}"
-    sed -i '' -e '/=== START OF READ/d' "${LOG_FILE}"
-    sed -i '' -e '/SMART Attributes Data/d' "${LOG_FILE}"
-    sed -i '' -e '/Vendor Specific SMART/d' "${LOG_FILE}"
-    sed -i '' -e '/SMART Error Log Version/d' "${LOG_FILE}"
+    ${pkgs.gnused}/bin/sed -i '' -e '/Copyright/d' "${LOG_FILE}"
+    ${pkgs.gnused}/bin/sed -i '' -e '/=== START OF READ/d' "${LOG_FILE}"
+    ${pkgs.gnused}/bin/sed -i '' -e '/SMART Attributes Data/d' "${LOG_FILE}"
+    ${pkgs.gnused}/bin/sed -i '' -e '/Vendor Specific SMART/d' "${LOG_FILE}"
+    ${pkgs.gnused}/bin/sed -i '' -e '/SMART Error Log Version/d' "${LOG_FILE}"
   fi
 }
 
@@ -514,20 +505,20 @@ poll_selftest_complete() {
   l_poll_duration_seconds=0
   while [ "${l_poll_duration_seconds}" -lt "${POLL_TIMEOUT_SECONDS}" ]; do
     smartctl --all "${DRIVE}" \
-      | grep -i "The previous self-test routine completed" > /dev/null 2>&1
+      | ${pkgs.gnugrep}/bin/grep -i "The previous self-test routine completed" > /dev/null 2>&1
     l_status="$?"
     if [ "${l_status}" -eq 0 ]; then
       log_info "SMART self-test succeeded"
       return 0
     fi
     smartctl --all "${DRIVE}" \
-      | grep -i "of the test failed\." > /dev/null 2>&1
+      | ${pkgs.gnugrep}/bin/grep -i "of the test failed\." > /dev/null 2>&1
     l_status="$?"
     if [ "${l_status}" -eq 0 ]; then
       log_info "SMART self-test failed"
       return 0
     fi
-    sleep "${POLL_INTERVAL_SECONDS}"
+    ${pkgs.coreutils-fill}/bin/sleep "${POLL_INTERVAL_SECONDS}"
     l_poll_duration_seconds="$(( l_poll_duration_seconds + POLL_INTERVAL_SECONDS ))"
   done
   log_info "SMART self-test timeout threshold exceeded"
@@ -549,7 +540,7 @@ run_smart_test() {
   log_header "Running SMART $1 test"
   dry_run_wrapper "smartctl --test=\"$1\" \"${DRIVE}\""
   log_info "SMART $1 test started, awaiting completion for $2 seconds ..."
-  dry_run_wrapper "sleep \"$2\""
+  dry_run_wrapper "${pkgs.coreutils-fill}/bin/sleep \"$2\""
   dry_run_wrapper "poll_selftest_complete"
   dry_run_wrapper "smartctl --log=selftest \"${DRIVE}\" | tee -a \"${LOG_FILE}\""
   log_info "Finished SMART $1 test"
@@ -568,7 +559,7 @@ run_smart_test() {
 run_badblocks_test() {
   log_header "Running badblocks test"
   if [ "${DISK_TYPE}" != "SSD" ]; then
-    dry_run_wrapper "badblocks -b ${BB_B_ARG} -wsv -c ${BB_C_ARG} -e ${BB_E_ARG} -o \"${BB_File}\" \"${DRIVE}\""
+    dry_run_wrapper "${pkgs.e2fsprogs}/bin/badblocks -b ${BB_B_ARG} -wsv -c ${BB_C_ARG} -e ${BB_E_ARG} -o \"${BB_File}\" \"${DRIVE}\""
   else
     log_info "SKIPPED: badblocks for ${DISK_TYPE} device"
   fi
